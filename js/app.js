@@ -26,6 +26,7 @@ const defaultData = {
             awards: [
                 { type: 'Ultra Award', year: '2022' }
             ],
+            joinDate: '2023-01-15',
             avatar: 'https://api.dicebear.com/7.x/fun-emoji/svg?seed=Groovy'
         },
         { 
@@ -100,7 +101,8 @@ const defaultData = {
             ]
         }
     ],
-    cart: []
+    cart: [],
+    orders: [] // New: Store order history
 };
 
 class Store {
@@ -214,6 +216,7 @@ class Store {
             nickname: details.firstName, // Default nickname
             raceHistory: [],
             awards: [],
+            joinDate: new Date().toISOString().split('T')[0],
             avatar: `https://api.dicebear.com/7.x/fun-emoji/svg?seed=${details.firstName}`,
             ...details
         };
@@ -264,6 +267,30 @@ class Store {
     clearCart() {
         this.data.cart = [];
         this.save();
+    }
+
+    placeOrder(details) {
+        if (!this.data.orders) this.data.orders = [];
+        const order = {
+            id: 'ord_' + Date.now(),
+            date: new Date().toISOString(),
+            userId: this.data.currentUser.id,
+            userSnapshot: { ...this.data.currentUser }, // Snapshot user details at time of order
+            items: [ ...this.data.cart ],
+            placedWithSupplier: false,
+            delivered: false
+        };
+        this.data.orders.push(order);
+        this.clearCart();
+        this.save();
+    }
+
+    updateOrder(orderId, updates) {
+        const order = this.data.orders.find(o => o.id === orderId);
+        if (order) {
+            Object.assign(order, updates);
+            this.save();
+        }
     }
 }
 
@@ -649,6 +676,16 @@ function renderAdmin(navigateTo) {
             </div>
             <div id="members-list"></div>
         </div>
+        
+        <!-- REPORTS SECTION -->
+        <div class="card" id="reports-section">
+            <h2>📊 Club Intelligence</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <button id="btn-rep-activity" class="btn btn-secondary">Activity Report</button>
+                <button id="btn-rep-orders" class="btn btn-secondary">Orders Report</button>
+            </div>
+            <div id="report-display-area" style="overflow-x: auto;"></div>
+        </div>
 
         <!-- Add Member Modal -->
         <div id="add-member-modal" class="modal-overlay hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(42, 0, 51, 0.95); z-index: 2000; align-items: center; justify-content: center; display: none; overflow-y: auto;">
@@ -809,6 +846,154 @@ function renderAdmin(navigateTo) {
         toggleAddMember(false);
         navigateTo('admin');
     });
+
+
+
+    /* --- Reports Logic --- */
+    const reportsDiv = container.querySelector('#reports-section');
+    const displayArea = reportsDiv.querySelector('#report-display-area');
+
+    // Helper: CSV Export
+    const downloadCSV = (filename, rows) => {
+        const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    function renderTable(headers, dataRowsWithMeta, reportName) {
+        // dataRowsWithMeta can be simple array of arrays OR [{rawOrder, cols: []}] for interactive columns
+        const isInteractive = dataRowsWithMeta.length > 0 && dataRowsWithMeta[0].rawOrder;
+
+        let html = `
+            <div style="background: white; padding: 10px; border-radius: 5px; color: black; min-width: 800px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                    <h3 style="color: var(--color-purple); margin:0;">${reportName.replace('_', ' ')}</h3>
+                    <div style="display: flex; gap: 5px;">
+                        <button class="btn-close-rep btn-secondary" style="padding: 2px 10px; font-size: 0.8rem;">Close</button>
+                        <button class="btn-export-excel btn-primary" style="padding: 2px 10px; font-size: 0.8rem;">Export Excel</button>
+                        <button class="btn-export-sheets btn-primary" style="padding: 2px 10px; font-size: 0.8rem;">Export Sheets</button>
+                    </div>
+                </div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+                    <thead>
+                        <tr style="background: #eee;">${headers.map(h => `<th style="padding: 5px; border: 1px solid #ddd;">${h}</th>`).join('')}</tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        dataRowsWithMeta.forEach((row, idx) => {
+            const cols = isInteractive ? row.cols : row;
+            html += `<tr style="border-bottom: 1px solid #ddd;">`;
+            
+            cols.forEach((val, cIdx) => {
+                // Special handling for last 2 columns in Interactive Orders mode (checkboxes)
+                if (isInteractive && (cIdx === 9 || cIdx === 10)) {
+                    // 9 = Placed, 10 = Delivered
+                    const checked = val ? 'checked' : '';
+                    const type = cIdx === 9 ? 'placedWithSupplier' : 'delivered';
+                    html += `<td style="padding: 5px; text-align: center;"><input type="checkbox" class="adm-chk" data-oid="${row.rawOrder.id}" data-type="${type}" ${checked}></td>`;
+                } else {
+                    html += `<td style="padding: 5px;">${val}</td>`;
+                }
+            });
+
+            html += `</tr>`;
+        });
+
+        html += `</tbody></table></div>`;
+        displayArea.innerHTML = html;
+
+        // Checkbox listeners
+        if (isInteractive) {
+            displayArea.querySelectorAll('.adm-chk').forEach(chk => {
+                chk.addEventListener('change', () => {
+                    store.updateOrder(chk.dataset.oid, { [chk.dataset.type]: chk.checked });
+                });
+            });
+        }
+
+        // Buttons
+        displayArea.querySelector('.btn-close-rep').onclick = () => displayArea.innerHTML = '';
+        
+        const plainRows = dataRowsWithMeta.map(r => isInteractive ? r.cols : r);
+        const exportData = [headers, ...plainRows];
+
+        displayArea.querySelector('.btn-export-excel').onclick = () => downloadCSV(reportName + '.csv', exportData);
+        displayArea.querySelector('.btn-export-sheets').onclick = () => downloadCSV(reportName + '_for_sheets.csv', exportData);
+    }
+
+    // Activity Report Logic
+    reportsDiv.querySelector('#btn-rep-activity').onclick = () => {
+        const members = store.data.users; 
+        const currentYear = new Date().getFullYear();
+        
+        const reportData = members.map(u => {
+            const attendance = store.getEvents().filter(evt => {
+                const isCurrentYear = new Date(evt.date).getFullYear() === currentYear;
+                const rsvp = (evt.rsvps || []).find(r => r.userId === u.id);
+                return isCurrentYear && rsvp && rsvp.status === 'attending';
+            }).length;
+
+            const participation = (u.raceHistory || [])
+                .filter(r => new Date(r.date).getFullYear() === currentYear)
+                .map(r => r.name)
+                .join(', ');
+
+            return {
+                firstName: u.firstName,
+                nickname: u.nickname,
+                surname: u.surname || '',
+                joinDate: u.joinDate || 'N/A',
+                umnum: u.umnum || '-',
+                attendance,
+                participation
+            };
+        });
+
+        renderTable(
+            ['First Name', 'Nickname', 'Surname', 'Join Date', 'UMNUM', 'Attendance (Curr Year)', 'Participation (Curr Year)'],
+            reportData.map(d => [d.firstName, d.nickname, d.surname, d.joinDate, d.umnum, d.attendance, `"${d.participation}"`]),
+            'Activity_Report'
+        );
+    };
+
+    // Orders Report Logic
+    reportsDiv.querySelector('#btn-rep-orders').onclick = () => {
+        const orders = (store.data.orders || []).sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        const rows = [];
+        orders.forEach(o => {
+            o.items.forEach(item => {
+                rows.push({
+                    rawOrder: o, 
+                    cols: [
+                        o.userSnapshot.firstName,
+                        o.userSnapshot.nickname,
+                        o.userSnapshot.surname || '',
+                        item.name,
+                        item.size,
+                        item.qty,
+                        `"${o.userSnapshot.address || ''}"`,
+                        o.userSnapshot.email,
+                        o.userSnapshot.mobile || '',
+                        o.placedWithSupplier,
+                        o.delivered
+                    ]
+                });
+            });
+        });
+
+        renderTable(
+            ['First Name', 'Nickname', 'Surname', 'Item', 'Size', 'Units', 'Address', 'Email', 'Mobile', 'Placed with Supplier', 'Delivered'],
+            rows,
+            'Orders_Report'
+        );
+    };
 
     return container;
 }
@@ -1040,7 +1225,7 @@ function renderCheckout(navigateTo) {
             </div>
             <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_blank">
                 ${paypalInputs}
-                <button type="submit" class="btn btn-primary" style="margin-top: 20px; font-size: 1.2rem;">Pay with <span style="font-weight: bold; font-style: italic;">PayPal</span></button>
+                <button id="pay-final-btn" type="submit" class="btn btn-primary" style="margin-top: 20px; font-size: 1.2rem;">Pay with <span style="font-weight: bold; font-style: italic;">PayPal</span></button>
             </form>
         </div>
     `;
@@ -1052,6 +1237,17 @@ function renderCheckout(navigateTo) {
         };
     });
 
+    container.querySelector('#pay-final-btn').onclick = () => {
+        const confirm = window.confirm(`Redirecting to PayPal to pay $${total.toFixed(2)}...\n\nClick OK if payment was successful to return to the Club.`);
+        if (confirm) {
+            store.placeOrder({ total: total });
+            alert('Payment Successful! Your merch is on the way.');
+            // navigateTo('home') will be triggered by form submit reload if not careful, 
+            // but form target=_blank keeps us here. We can navigate manually after short delay.
+            setTimeout(() => navigateTo('home'), 500);
+        }
+    };
+    
     return container;
 }
 
