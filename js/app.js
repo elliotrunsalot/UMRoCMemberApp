@@ -1,5 +1,5 @@
 /* --- STORE SERVICE --- */
-const STORE_KEY = 'pump_data_v1';
+const STORE_KEY = 'pump_data_v3'; // Increment version to reset bad data if needed
 
 const defaultData = {
     currentUser: null,
@@ -8,10 +8,24 @@ const defaultData = {
             id: 'u1', 
             email: 'admin@pump.com', 
             password: 'admin', 
-            firstName: 'Groovy', 
-            nickname: 'The Boss', 
+            firstName: 'Elliot', 
+            surname: 'Cooper',
+            nickname: 'Bushy', 
             role: 'admin', 
-            emergencyContact: 'Mama (555-0199)',
+            dob: '1980-01-01',
+            gender: 'Other',
+            address: '123 Psychedelic Lane, Mushroom Kingdom',
+            mobile: '0400000000',
+            emergencyContactName: 'Mama',
+            emergencyContactMobile: '0411111111',
+            umnum: '001',
+            permRaceNum: '11',
+            raceHistory: [
+                { name: 'Ultra Trail 100', date: '2020-05-20' }
+            ],
+            awards: [
+                { type: 'Ultra Award', year: '2022' }
+            ],
             avatar: 'https://api.dicebear.com/7.x/fun-emoji/svg?seed=Groovy'
         },
         { 
@@ -19,29 +33,74 @@ const defaultData = {
             email: 'member@pump.com', 
             password: 'password', 
             firstName: 'Daisy', 
+            surname: 'Chain',
             nickname: 'DayDream', 
             role: 'member', 
-            emergencyContact: 'Peace (555-0122)',
+            dob: '1995-06-15',
+            gender: 'Female',
+            address: '42 Wallaby Way, Sydney',
+            mobile: '0422222222',
+            emergencyContactName: 'Peace',
+            emergencyContactMobile: '0433333333',
+            umnum: '245',
+            permRaceNum: '',
+            raceHistory: [],
+            awards: [],
             avatar: 'https://api.dicebear.com/7.x/fun-emoji/svg?seed=Daisy'
         }
     ],
     events: [
         {
             id: 'e1',
-            title: 'Full Moon Mushroom Hunt',
-            date: '2025-10-31T20:00',
-            description: 'Find the magic in the forest. Bring a flashlight!',
+            title: 'Sufferfest',
+            date: '2025-10-31T08:00',
+            description: 'How many times can you run up Stockyard spur in 6hrs?',
             rsvps: []
         },
         {
             id: 'e2',
-            title: 'Tie-Dye Workshop',
-            date: '2025-11-05T14:00',
-            description: 'Bring your own white tees. We provide the colors.',
+            title: 'Grindfest',
+            date: '2025-11-05T08:00',
+            description: '6 hrs on the hard stuff.',
+            rsvps: []
+        },
+        {
+            id: 'e3',
+            title: 'Jingleballs',
+            date: '2025-12-05T07:00',
+            description: 'Bring Christmas cheer. We will supply the balls.',
             rsvps: []
         }
     ],
-    notifications: []
+    notifications: [],
+    products: [
+        {
+            id: 'p1',
+            name: 'Psychedelic Run Shirt',
+            description: 'Run fast, look tripping. Breathable fabric.',
+            image: 'img/shirt.png',
+            options: [
+                 { size: 'S', price: 45 },
+                 { size: 'M', price: 45 },
+                 { size: 'L', price: 45 },
+                 { size: 'XL', price: 50 },
+                 { size: '2XL', price: 50 }
+            ]
+        },
+        {
+            id: 'p2',
+            name: 'Night Runner Hoodie',
+            description: 'Keep warm before the race. Premium cotton.',
+            image: 'img/hoodie.png',
+            options: [
+                 { size: 'S', price: 80 },
+                 { size: 'M', price: 80 },
+                 { size: 'L', price: 85 },
+                 { size: 'XL', price: 85 }
+            ]
+        }
+    ],
+    cart: []
 };
 
 class Store {
@@ -58,8 +117,9 @@ class Store {
         localStorage.setItem(STORE_KEY, JSON.stringify(this.data));
     }
 
-    login(email, password) {
-        const user = this.data.users.find(u => u.email === email && u.password === password);
+    login(umnum, password) {
+        // Login by UMNUM now
+        const user = this.data.users.find(u => u.umnum === umnum && u.password === password);
         if (user) {
             this.data.currentUser = user;
             this.save();
@@ -74,6 +134,11 @@ class Store {
     }
 
     getCurrentUser() {
+        // Refresh from "DB" to get latest updates
+        if (this.data.currentUser) {
+            const fresh = this.data.users.find(u => u.id === this.data.currentUser.id);
+            if (fresh) this.data.currentUser = fresh;
+        }
         return this.data.currentUser;
     }
 
@@ -84,6 +149,24 @@ class Store {
             if (this.data.currentUser && this.data.currentUser.id === id) {
                 this.data.currentUser = this.data.users[idx];
             }
+            this.save();
+        }
+    }
+
+    addRace(userId, raceName, raceDate) {
+        const idx = this.data.users.findIndex(u => u.id === userId);
+        if (idx !== -1) {
+            if (!this.data.users[idx].raceHistory) this.data.users[idx].raceHistory = [];
+            this.data.users[idx].raceHistory.push({ name: raceName, date: raceDate });
+            this.save();
+        }
+    }
+
+    addAward(userId, type, year) {
+        const idx = this.data.users.findIndex(u => u.id === userId);
+        if (idx !== -1) {
+            if (!this.data.users[idx].awards) this.data.users[idx].awards = [];
+            this.data.users[idx].awards.push({ type, year });
             this.save();
         }
     }
@@ -103,6 +186,85 @@ class Store {
             this.save();
         }
     }
+
+    addEvent(title, date, description) {
+        const id = 'e' + Date.now();
+        this.data.events.push({
+            id,
+            title,
+            date,
+            description,
+            rsvps: []
+        });
+        // Keep events sorted by date
+        this.data.events.sort((a, b) => new Date(a.date) - new Date(b.date));
+        this.save();
+    }
+
+    addMember(details) {
+        const maxUmnum = this.data.users.reduce((max, u) => Math.max(max, parseInt(u.umnum || '0')), 0);
+        const newUmnum = String(maxUmnum + 1).padStart(3, '0');
+        const password = 'welcome' + newUmnum; // Simple default password
+
+        const newUser = {
+            id: 'u' + Date.now(),
+            umnum: newUmnum,
+            password: password,
+            role: 'member',
+            nickname: details.firstName, // Default nickname
+            raceHistory: [],
+            awards: [],
+            avatar: `https://api.dicebear.com/7.x/fun-emoji/svg?seed=${details.firstName}`,
+            ...details
+        };
+
+        this.data.users.push(newUser);
+        this.save();
+        return { umnum: newUmnum, password };
+    }
+
+    /* --- SHOP METHODS --- */
+    getProducts() {
+        return this.data.products;
+    }
+
+    addProduct(product) {
+        this.data.products.push({ id: 'p' + Date.now(), ...product });
+        this.save();
+    }
+
+    getCart() {
+         return this.data.cart || [];
+    }
+
+    addToCart(product, size, qty, price) {
+        if (!this.data.cart) this.data.cart = [];
+        const existing = this.data.cart.find(i => i.productId === product.id && i.size === size);
+        if (existing) {
+            existing.qty += qty;
+        } else {
+            this.data.cart.push({
+                productId: product.id,
+                name: product.name,
+                image: product.image,
+                size,
+                price: price, // price per unit
+                qty
+            });
+        }
+        this.save();
+    }
+
+    removeFromCart(productId, size) {
+        if (!this.data.cart) return;
+        this.data.cart = this.data.cart.filter(i => !(i.productId === productId && i.size === size));
+        this.save();
+    }
+
+    clearCart() {
+        this.data.cart = [];
+        this.save();
+    }
 }
 
 const store = new Store();
@@ -118,15 +280,15 @@ function renderAuth(navigateTo) {
     container.innerHTML = `
         <div class="card" style="margin-top: 50px;">
             <h1>PUMP</h1>
-            <p style="font-size: 1.2rem; margin-bottom: 20px;">Peace, Love & Membership</p>
+            <p style="font-size: 1.2rem; margin-bottom: 20px;">Portal for UMRoC Member Pinkification</p>
             <form id="login-form">
                 <div class="form-group">
-                    <label>Email</label>
-                    <input type="email" id="email" placeholder="groovy@example.com" value="admin@pump.com">
+                    <label>UMNUM (Member ID)</label>
+                    <input type="text" id="umnum" placeholder="001" value="">
                 </div>
                 <div class="form-group">
                     <label>Password</label>
-                    <input type="password" id="password" placeholder="******" value="admin">
+                    <input type="password" id="password" placeholder="******" value="">
                 </div>
                 <button type="submit" class="btn btn-primary">Login</button>
             </form>
@@ -142,13 +304,13 @@ function renderAuth(navigateTo) {
 
     container.querySelector('#login-form').addEventListener('submit', (e) => {
         e.preventDefault();
-        const email = container.querySelector('#email').value;
+        const umnum = container.querySelector('#umnum').value;
         const password = container.querySelector('#password').value;
-        const user = store.login(email, password);
+        const user = store.login(umnum, password);
         if (user) {
             navigateTo('home');
         } else {
-            alert('Bummer! Wrong credentials.');
+            alert('Bummer! Wrong credentials. Try UMNUM: 001 / Password: admin');
         }
     });
 
@@ -201,7 +363,15 @@ function renderHome(navigateTo) {
         <div class="card">
             <h2>Membership Status</h2>
             <p>Active until Dec 2026</p>
-            <button class="btn btn-primary">Pay Dues via PayPal</button>
+            <p><strong>UMNUM:</strong> ${user.umnum || 'Pending'}</p>
+            <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_blank">
+                <input type="hidden" name="business" value="Q7RWDDT9G88QG">
+                <input type="hidden" name="cmd" value="_xclick">
+                <input type="hidden" name="item_name" value="Annual Membership">
+                <input type="hidden" name="amount" value="15.00">
+                <input type="hidden" name="currency_code" value="AUD">
+                <button type="submit" class="btn btn-primary">Pay Dues via PayPal ($15 AUD)</button>
+            </form>
         </div>
     `;
 
@@ -267,8 +437,81 @@ function renderCalendar(navigateTo) {
         addBtn.className = 'btn btn-primary';
         addBtn.innerText = '+ Add New Event';
         addBtn.style.marginTop = '20px';
-        addBtn.onclick = () => alert('Admin: Open Add Event Modal (Mock)');
+        
+        // Modal Container
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay hidden';
+        // We use inline styles here for the overlay to ensure it sits on top correctly without polluting global CSS for a single-use modal
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(42, 0, 51, 0.85); z-index: 2000; align-items: center; justify-content: center; display: none;';
+        
+        modal.innerHTML = `
+            <div class="card" style="width: 90%; max-width: 500px; margin: 0; box-shadow: 0 0 20px rgba(0,0,0,0.5); animation: popIn 0.3s ease-out;">
+                <h2 style="color: var(--color-purple); text-align:center; margin-bottom:15px;">New Run/Event</h2>
+                <form id="add-event-form">
+                    <div class="form-group">
+                        <label>Event Name</label>
+                        <input type="text" id="evtTitle" required placeholder="e.g. Sunday Long Run">
+                    </div>
+                    <div class="form-group">
+                        <label>Date & Time</label>
+                        <input type="datetime-local" id="evtDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea id="evtDesc" rows="3" required placeholder="Where we meeting? How far?"></textarea>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button type="button" id="cancel-evt" class="btn btn-secondary">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Create Event</button>
+                    </div>
+                </form>
+            </div>
+            <style>
+                @keyframes popIn {
+                    0% { transform: scale(0.8); opacity: 0; }
+                    100% { transform: scale(1); opacity: 1; }
+                }
+            </style>
+        `;
+        
+        container.appendChild(modal);
         container.appendChild(addBtn);
+
+        const toggleModal = (show) => {
+            if (show) {
+                modal.classList.remove('hidden');
+                modal.style.display = 'flex';
+                // Reset form on open
+                if(show) {
+                     const now = new Date();
+                     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+                     modal.querySelector('#evtDate').value = now.toISOString().slice(0,16);
+                }
+            } else {
+                modal.classList.add('hidden');
+                modal.style.display = 'none';
+            }
+        };
+
+        addBtn.onclick = () => toggleModal(true);
+        modal.querySelector('#cancel-evt').onclick = () => toggleModal(false);
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) toggleModal(false);
+        });
+
+        modal.querySelector('#add-event-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const title = modal.querySelector('#evtTitle').value;
+            const date = modal.querySelector('#evtDate').value;
+            const desc = modal.querySelector('#evtDesc').value;
+            
+            store.addEvent(title, date, desc);
+            // No alert, just feels faster
+            toggleModal(false);
+            navigateTo('calendar');
+        });
     }
     return container;
 }
@@ -276,47 +519,119 @@ function renderCalendar(navigateTo) {
 function renderProfile(navigateTo) {
     const user = store.getCurrentUser();
     if (!user) { navigateTo('auth'); return document.createElement('div'); }
+    const isAdmin = user.role === 'admin';
 
     const container = document.createElement('div');
     container.className = 'content';
+    
+    // Race History HTML
+    const raceHistoryHtml = (user.raceHistory || []).map(r => 
+        `<li><strong>${r.name}</strong> - ${r.date}</li>`
+    ).join('');
+
+    // Awards HTML
+    const awardsHtml = (user.awards || []).map(a => 
+         `<li><span style="font-size:1.5rem">🏆</span> <strong>${a.type}</strong> (${a.year})</li>`
+    ).join('');
+
     container.innerHTML = `
         <div class="card" style="text-align: center;">
             <div style="width: 100px; height: 100px; border-radius: 50%; border: 4px solid var(--color-yellow); margin: 0 auto; overflow: hidden; background: #fff;">
                 <img src="${user.avatar}" style="width: 100%; height: 100%; object-fit: cover;">
             </div>
-            <h2 style="color: var(--color-purple); margin-top: 10px;">${user.firstName}</h2>
+            <h2 style="color: var(--color-purple); margin-top: 10px;">${user.firstName} ${user.surname || ''}</h2>
             <p>"${user.nickname}"</p>
-            <span style="background: var(--color-pink); color: white; padding: 2px 10px; border-radius: 10px; font-size: 0.8rem;">${user.role}</span>
+            <p><strong>UMNUM:</strong> ${user.umnum || '--'} | <strong>Perm #:</strong> ${user.permRaceNum || '--'}</p>
         </div>
+
+        ${awardsHtml ? `
+        <div class="card" style="background: linear-gradient(135deg, #FFD700 0%, #FFF8DC 100%);">
+            <h3>Hall of Fame</h3>
+            <ul style="list-style: none; padding: 0;">${awardsHtml}</ul>
+        </div>
+        ` : ''}
+
         <div class="card">
             <h3>Edit Details</h3>
             <form id="profile-form">
-                <div class="form-group"><label>First Name</label><input type="text" id="fname" value="${user.firstName}"></div>
-                <div class="form-group"><label>Nickname</label><input type="text" id="nname" value="${user.nickname}"></div>
-                <div class="form-group"><label>Emergency Contact</label><input type="text" id="econtact" value="${user.emergencyContact || ''}"></div>
+                <div class="form-group"><label>First Name</label><input type="text" id="firstName" value="${user.firstName}"></div>
+                <div class="form-group"><label>Surname</label><input type="text" id="surname" value="${user.surname || ''}"></div>
+                <div class="form-group"><label>Date of Birth</label><input type="date" id="dob" value="${user.dob || ''}"></div>
+                <div class="form-group"><label>Gender</label>
+                    <select id="gender">
+                        <option value="Male" ${user.gender === 'Male' ? 'selected' : ''}>Male</option>
+                        <option value="Female" ${user.gender === 'Female' ? 'selected' : ''}>Female</option>
+                        <option value="Non-Binary" ${user.gender === 'Non-Binary' ? 'selected' : ''}>Non-Binary</option>
+                        <option value="Other" ${user.gender === 'Other' ? 'selected' : ''}>Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group"><label>Home Address</label><textarea id="address" rows="3">${user.address || ''}</textarea></div>
+                <div class="form-group"><label>Email Address</label><input type="email" id="email" value="${user.email}" disabled style="background: #eee;"></div>
+                <div class="form-group"><label>Mobile Phone</label><input type="tel" id="mobile" value="${user.mobile || ''}"></div>
+                
+                <hr style="margin: 20px 0; border: 1px dashed var(--color-purple);">
+                
+                <div class="form-group"><label>Emergency Contact Name</label><input type="text" id="ecName" value="${user.emergencyContactName || ''}"></div>
+                <div class="form-group"><label>Emergency Contact Mobile</label><input type="tel" id="ecMobile" value="${user.emergencyContactMobile || ''}"></div>
+
+                ${isAdmin ? `<div class="form-group"><label>Nickname (Admin Only)</label><input type="text" id="nickname" value="${user.nickname}"></div>` : ''}
+
                 <button type="submit" class="btn btn-primary">Save Changes</button>
             </form>
         </div>
-        <div class="card"><button id="logout-btn" class="btn" style="background: #333; color: white;">Logout</button></div>
+        
+        <div class="card">
+            <h3>Race History</h3>
+            <ul style="list-style: none; padding-left: 0; margin-bottom: 15px;">
+                ${raceHistoryHtml.length ? raceHistoryHtml : '<li>No races recorded yet!</li>'}
+            </ul>
+            <div style="background: rgba(0,0,0,0.05); padding: 10px; border-radius: 10px;">
+                <h4>Add Race</h4>
+                <input type="text" id="newRaceName" placeholder="Race Name" style="margin-bottom: 5px;">
+                <input type="date" id="newRaceDate" style="margin-bottom: 5px;">
+                <button id="add-race-btn" class="btn btn-secondary" style="padding: 10px; font-size: 0.9rem;">Add Record</button>
+            </div>
+        </div>
     `;
-
-    container.querySelector('#logout-btn').addEventListener('click', () => { store.logout(); navigateTo('auth'); });
+    
     container.querySelector('#profile-form').addEventListener('submit', (e) => {
         e.preventDefault();
-        store.updateUser(user.id, {
-            firstName: container.querySelector('#fname').value,
-            nickname: container.querySelector('#nname').value,
-            emergencyContact: container.querySelector('#econtact').value
-        });
+        const updates = {
+            firstName: container.querySelector('#firstName').value,
+            surname: container.querySelector('#surname').value,
+            dob: container.querySelector('#dob').value,
+            gender: container.querySelector('#gender').value,
+            address: container.querySelector('#address').value,
+            mobile: container.querySelector('#mobile').value,
+            emergencyContactName: container.querySelector('#ecName').value,
+            emergencyContactMobile: container.querySelector('#ecMobile').value,
+        };
+        if (isAdmin) {
+            updates.nickname = container.querySelector('#nickname').value;
+        }
+        store.updateUser(user.id, updates);
         alert('Profile Updated!');
         navigateTo('profile');
     });
+
+    container.querySelector('#add-race-btn').addEventListener('click', () => {
+        const name = container.querySelector('#newRaceName').value;
+        const date = container.querySelector('#newRaceDate').value;
+        if (name && date) {
+            store.addRace(user.id, name, date);
+            navigateTo('profile');
+        } else {
+            alert('Please enter both race name and date.');
+        }
+    });
+
     return container;
 }
 
 function renderAdmin(navigateTo) {
-    const user = store.getCurrentUser();
-    if (!user || user.role !== 'admin') { navigateTo('home'); return document.createElement('div'); }
+    const currentUser = store.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'admin') { navigateTo('home'); return document.createElement('div'); }
 
     const container = document.createElement('div');
     container.className = 'content';
@@ -327,34 +642,416 @@ function renderAdmin(navigateTo) {
             <textarea id="msg-text" rows="4" placeholder="Hello {{nickname}}..."></textarea>
             <button id="send-btn" class="btn btn-primary">Send Blast</button>
         </div>
-        <div class="card"><h2>👥 Member Management</h2><div id="members-list"></div></div>
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h2>👥 Member Management</h2>
+                <button id="add-member-btn" class="btn btn-primary" style="width: auto; padding: 5px 15px;">+ Add Member</button>
+            </div>
+            <div id="members-list"></div>
+        </div>
+
+        <!-- Add Member Modal -->
+        <div id="add-member-modal" class="modal-overlay hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(42, 0, 51, 0.95); z-index: 2000; align-items: center; justify-content: center; display: none; overflow-y: auto;">
+            <div class="card" style="width: 95%; max-width: 600px; margin: 20px auto; box-shadow: 0 0 20px rgba(0,0,0,0.5);">
+                <h2 style="color: var(--color-purple); text-align:center;">Register New Member</h2>
+                <form id="add-member-form">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group"><label>First Name</label><input type="text" id="new-fname" required></div>
+                        <div class="form-group"><label>Surname</label><input type="text" id="new-sname" required></div>
+                    </div>
+                    <div class="form-group"><label>Date of Birth</label><input type="date" id="new-dob" required></div>
+                    <div class="form-group"><label>Gender</label>
+                        <select id="new-gender">
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Non-Binary">Non-Binary</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Email</label><input type="email" id="new-email" required></div>
+                    <div class="form-group"><label>Mobile</label><input type="tel" id="new-mobile" required></div>
+                    <div class="form-group"><label>Address</label><textarea id="new-address" rows="2"></textarea></div>
+                    <h4 style="margin-top: 15px;">Emergency Contact</h4>
+                    <div class="form-group"><label>Name</label><input type="text" id="new-ecname"></div>
+                    <div class="form-group"><label>Mobile</label><input type="tel" id="new-ecmobile"></div>
+                    
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button type="button" id="cancel-add-member" class="btn btn-secondary">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Create Member</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     `;
 
     const membersList = container.querySelector('#members-list');
+    
+    // Helper to generate full edit form for a user
+    const createEditForm = (u) => `
+        <div class="admin-edit-panel hidden" style="margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px; background: rgba(255,255,255,0.5); padding: 10px; border-radius: 10px;">
+            <h4>Edit Member Details</h4>
+            <div class="form-group"><label>First Name</label><input type="text" class="adm-fname" value="${u.firstName}"></div>
+            <div class="form-group"><label>Surname</label><input type="text" class="adm-sname" value="${u.surname || ''}"></div>
+            <div class="form-group"><label>Nickname</label><input type="text" class="adm-nick" value="${u.nickname}"></div>
+            <div class="form-group"><label>Email</label><input type="text" class="adm-email" value="${u.email}"></div>
+            <div class="form-group"><label>UMNUM</label><input type="text" class="adm-umnum" value="${u.umnum || ''}"></div>
+            <div class="form-group"><label>Perm Race #</label><input type="text" class="adm-perm" value="${u.permRaceNum || ''}"></div>
+            <div class="form-group"><label>Mobile</label><input type="text" class="adm-mobile" value="${u.mobile || ''}"></div>
+            
+            <h4 style="margin-top: 15px;">Awards</h4>
+            <div style="margin-bottom: 10px;">
+                ${(u.awards || []).map(a => `<span style="background:var(--color-yellow); padding: 2px 5px; border-radius: 4px; margin-right: 5px; font-size: 0.8rem;">${a.type} '${a.year}</span>`).join('')}
+            </div>
+            <div style="display: flex; gap: 5px;">
+                <select class="adm-award-type">
+                    <option value="Ultra Award">Ultra Award</option>
+                    <option value="Mediocre Award">Mediocre Award</option>
+                </select>
+                <input type="number" class="adm-award-year" placeholder="Year" style="width: 80px;">
+                <button class="add-award-btn btn-secondary" style="padding: 5px;">Add</button>
+            </div>
+
+            <div style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 10px; display: flex; justify-content: space-between;">
+                <button class="save-adm btn-primary" style="padding: 10px; font-size: 0.9rem;">Save Details</button>
+                ${u.id !== currentUser.id ? `<button class="toggle-role btn-secondary" style="padding: 10px; font-size: 0.9rem; background: #666;">${u.role === 'admin' ? 'Demote' : 'Promote'}</button>` : ''}
+            </div>
+        </div>
+    `;
+
     store.data.users.forEach(u => {
         const row = document.createElement('div');
-        row.style.borderBottom = '1px solid #ccc';
-        row.style.padding = '10px 0';
-        row.style.display = 'flex';
-        row.style.justifyContent = 'space-between';
+        row.className = 'card';
+        row.style.margin = '10px 0';
         
         row.innerHTML = `
-            <div><strong>${u.firstName}</strong> (${u.role})<br><span style="font-size: 0.8rem;">${u.email}</span></div>
-            ${u.id !== user.id ? `<button class="toggle-role btn-secondary" style="padding: 5px;">${u.role === 'admin' ? 'Demote' : 'Promote'}</button>` : ''}
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div><strong>${u.firstName} ${u.surname || ''}</strong> (${u.role})<br><span style="font-size: 0.8rem;">UMNUM: ${u.umnum || 'N/A'}</span></div>
+                <button class="toggle-edit btn-secondary" style="padding: 5px; width: auto;">Manage</button>
+            </div>
+            ${createEditForm(u)}
         `;
-        const toggleBtn = row.querySelector('.toggle-role');
-        if (toggleBtn) {
-            toggleBtn.onclick = () => {
-                store.updateUser(u.id, { role: u.role === 'admin' ? 'member' : 'admin' });
+        
+        const panel = row.querySelector('.admin-edit-panel');
+        row.querySelector('.toggle-edit').onclick = () => panel.classList.toggle('hidden');
+        
+        // Save Details
+        row.querySelector('.save-adm').onclick = () => {
+            store.updateUser(u.id, {
+                firstName: row.querySelector('.adm-fname').value,
+                surname: row.querySelector('.adm-sname').value,
+                nickname: row.querySelector('.adm-nick').value,
+                email: row.querySelector('.adm-email').value,
+                umnum: row.querySelector('.adm-umnum').value,
+                permRaceNum: row.querySelector('.adm-perm').value,
+                mobile: row.querySelector('.adm-mobile').value
+            });
+            alert('User Updated');
+            navigateTo('admin');
+        };
+
+        // Add Award
+        row.querySelector('.add-award-btn').onclick = () => {
+            const type = row.querySelector('.adm-award-type').value;
+            const year = row.querySelector('.adm-award-year').value;
+            if (type && year) {
+                store.addAward(u.id, type, year);
+                alert('Award Added!');
                 navigateTo('admin');
             }
+        };
+
+        // Toggle Role
+        const roleBtn = row.querySelector('.toggle-role');
+        if (roleBtn) {
+            roleBtn.onclick = () => {
+                store.updateUser(u.id, { role: u.role === 'admin' ? 'member' : 'admin' });
+                navigateTo('admin');
+            };
         }
+        
         membersList.appendChild(row);
     });
 
-    container.querySelector('#send-btn').addEventListener('click', () => {
-        alert('Blast Sent!');
+    // Add Member Modal Logic
+    const addMemberModal = container.querySelector('#add-member-modal');
+    const toggleAddMember = (show) => {
+        if (show) {
+            addMemberModal.classList.remove('hidden');
+            addMemberModal.style.display = 'flex';
+        } else {
+            addMemberModal.classList.add('hidden');
+            addMemberModal.style.display = 'none';
+        }
+    };
+
+    container.querySelector('#add-member-btn').onclick = () => toggleAddMember(true);
+    container.querySelector('#cancel-add-member').onclick = () => toggleAddMember(false);
+    addMemberModal.addEventListener('click', (e) => {
+        if (e.target === addMemberModal) toggleAddMember(false);
     });
+
+    container.querySelector('#add-member-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const details = {
+            firstName: container.querySelector('#new-fname').value,
+            surname: container.querySelector('#new-sname').value,
+            dob: container.querySelector('#new-dob').value,
+            gender: container.querySelector('#new-gender').value,
+            email: container.querySelector('#new-email').value,
+            mobile: container.querySelector('#new-mobile').value,
+            address: container.querySelector('#new-address').value,
+            emergencyContactName: container.querySelector('#new-ecname').value,
+            emergencyContactMobile: container.querySelector('#new-ecmobile').value,
+        };
+
+        const creds = store.addMember(details);
+        alert(`Member Created!\nEmail sent to: ${details.email}\n\nCredentials:\nUMNUM: ${creds.umnum}\nPassword: ${creds.password}`);
+        toggleAddMember(false);
+        navigateTo('admin');
+    });
+
+    return container;
+}
+
+function renderSocial(navigateTo) {
+    const currentUser = store.getCurrentUser();
+    if (!currentUser) { navigateTo('auth'); return document.createElement('div'); }
+
+    const container = document.createElement('div');
+    container.className = 'content';
+    container.innerHTML = `
+        <h1 style="text-align: center; color: var(--color-white); margin-bottom: 20px;">Social Vibes</h1>
+        <div id="social-list"></div>
+    `;
+
+    const list = container.querySelector('#social-list');
+    const allUsers = store.data.users;
+    const currentYear = new Date().getFullYear().toString();
+
+    allUsers.forEach(u => {
+        // Skip current user if desired? Usually social shows everyone including self, or everyone else. User asked for "view the profiles of all other club members".
+        // "view the profiles of all other club members" implies excluding self?
+        // Let's exclude self for strict compliance, or maybe include everyone. "Other" usually means "not me".
+        // Code: if (u.id === currentUser.id) return;
+        
+        if (u.id === currentUser.id) return;
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+        card.style.gap = '10px';
+
+        // Awards
+        const awardsHtml = (u.awards || []).map(a => 
+            `<span style="background:var(--color-yellow); color:var(--color-purple); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight:bold; display:inline-block; margin:2px;">🏆 ${a.type}</span>`
+        ).join('');
+
+        // Races this year
+        const racesThisYear = (u.raceHistory || []).filter(r => r.date.startsWith(currentYear));
+        const racesHtml = racesThisYear.length > 0 
+            ? `<ul style="list-style-type: disc; padding-left: 20px; font-size: 0.9rem;">${racesThisYear.map(r => `<li>${r.name}</li>`).join('')}</ul>`
+            : '<span style="font-size: 0.8rem; font-style: italic; color: #666;">No races this year.</span>';
+
+        card.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <div style="width: 70px; height: 70px; min-width: 70px; border-radius: 50%; overflow: hidden; border: 3px solid var(--color-purple);">
+                    <img src="${u.avatar}" style="width: 100%; height: 100%; object-fit: cover;">
+                </div>
+                <div>
+                    <h3 style="margin: 0; color: var(--color-purple); font-size: 1.4rem;">${u.firstName} ${u.surname || ''}</h3>
+                    <p style="font-size: 0.9rem; margin-top: 2px;">${u.nickname}</p>
+                </div>
+            </div>
+            
+            <div style="margin-top: 10px;">
+                ${awardsHtml ? `
+                    <div style="margin-bottom: 10px;">
+                        <strong style="display:block; font-size: 0.8rem; color: #555; margin-bottom: 2px;">Awards</strong>
+                        ${awardsHtml}
+                    </div>` : ''
+                }
+                
+                <div>
+                    <strong style="font-size: 0.9rem; color: #555;">Races in ${currentYear}</strong>
+                    ${racesHtml}
+                </div>
+            </div>
+        `;
+        list.appendChild(card);
+    });
+
+    if (list.children.length === 0) {
+        list.innerHTML = '<p style="text-align:center; color: white;">No other members to show yet!</p>';
+    }
+
+    return container;
+}
+
+
+
+function renderShop(navigateTo) {
+    const user = store.getCurrentUser();
+    if (!user) { navigateTo('auth'); return document.createElement('div'); }
+    const isAdmin = user.role === 'admin';
+
+    const container = document.createElement('div');
+    container.className = 'content';
+    
+    // Cart Summary Button
+    const cartCount = store.getCart().reduce((sum, i) => sum + i.qty, 0);
+    
+    container.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1 style="color: var(--color-white);">Club Merch</h1>
+            <button id="cart-btn" class="btn btn-secondary" style="width: auto;">🛒 Cart (${cartCount})</button>
+        </div>
+        <div id="products-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;"></div>
+    `;
+
+    const grid = container.querySelector('#products-grid');
+    const products = store.getProducts();
+
+    products.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+        
+        // Size Options
+        const optionsHtml = p.options.map(opt => `<option value="${opt.size}|${opt.price}">${opt.size} - $${opt.price}</option>`).join('');
+
+        card.innerHTML = `
+            <div style="height: 200px; overflow: hidden; border-radius: 10px; margin-bottom: 10px; background: white; display: flex; align-items: center; justify-content: center;">
+                <img src="${p.image}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+            </div>
+            <h3 style="margin-bottom: 5px;">${p.name}</h3>
+            <p style="font-size: 0.9rem; color: #555; flex-grow: 1;">${p.description}</p>
+            
+            <div style="margin-top: 15px; border-top: 1px dashed #eee; padding-top: 10px;">
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <select class="p-option" style="flex: 2;">${optionsHtml}</select>
+                    <input type="number" class="p-qty" value="1" min="1" style="flex: 1;">
+                </div>
+                <button class="add-cart-btn btn btn-primary">Add to Cart</button>
+            </div>
+        `;
+        
+        card.querySelector('.add-cart-btn').onclick = () => {
+            const [size, price] = card.querySelector('.p-option').value.split('|');
+            const qty = parseInt(card.querySelector('.p-qty').value);
+            store.addToCart(p, size, qty, parseFloat(price));
+            alert('Added to Cart!');
+            navigateTo('shop'); // Refresh to update count
+        };
+
+        grid.appendChild(card);
+    });
+
+    // Admin Add Product
+    if (isAdmin) {
+        const addDiv = document.createElement('div');
+        addDiv.className = 'card';
+        addDiv.style.border = '2px dashed var(--color-purple)';
+        addDiv.style.display = 'flex';
+        addDiv.style.alignItems = 'center';
+        addDiv.style.justifyContent = 'center';
+        addDiv.style.cursor = 'pointer';
+        addDiv.style.minHeight = '300px';
+        addDiv.innerHTML = `<h3 style="color: var(--color-purple);">+ Add New Merch</h3>`;
+        addDiv.onclick = () => {
+             const name = prompt("Item Name:");
+             if(!name) return;
+             const desc = prompt("Description:");
+             const img = prompt("Image URL (or leave blank for placeholder):") || "https://placehold.co/400";
+             const price = prompt("Base Price:");
+             
+             store.addProduct({
+                 name,
+                 description: desc,
+                 image: img,
+                 options: [ { size: 'One Size', price: parseInt(price) || 20 } ]
+             });
+             alert('Product Added');
+             navigateTo('shop');
+        };
+        grid.appendChild(addDiv);
+    }
+
+    container.querySelector('#cart-btn').onclick = () => navigateTo('checkout');
+    return container;
+}
+
+function renderCheckout(navigateTo) {
+    const user = store.getCurrentUser();
+    if (!user) { navigateTo('auth'); return document.createElement('div'); }
+
+    const container = document.createElement('div');
+    container.className = 'content';
+    container.innerHTML = `<h1 style="color: white; margin-bottom: 20px;">Checkout</h1>`;
+
+    const cart = store.getCart();
+    
+    if (cart.length === 0) {
+        container.innerHTML += `<div class="card"><p>Your cart is empty!</p><button id="back-shop" class="btn btn-secondary">Go Shopping</button></div>`;
+        setTimeout(() => { container.querySelector('#back-shop').onclick = () => navigateTo('shop'); }, 0);
+        return container;
+    }
+
+    const total = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+
+    const cartList = cart.map(item => `
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding: 10px 0;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <img src="${item.image}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 5px;">
+                <div>
+                    <strong>${item.name}</strong><br>
+                    <span style="font-size: 0.9rem;">Size: ${item.size} | Qty: ${item.qty}</span>
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <div>$${(item.price * item.qty).toFixed(2)}</div>
+                <button class="remove-btn" style="color: red; background: none; border: none; font-size: 0.8rem; cursor: pointer; text-decoration: underline;" data-pid="${item.productId}" data-sz="${item.size}">Remove</button>
+            </div>
+        </div>
+    `).join('');
+
+    let paypalInputs = `
+        <input type="hidden" name="business" value="Q7RWDDT9G88QG">
+        <input type="hidden" name="cmd" value="_cart">
+        <input type="hidden" name="upload" value="1">
+        <input type="hidden" name="currency_code" value="AUD">
+    `;
+    
+    cart.forEach((item, index) => {
+        const idx = index + 1;
+        paypalInputs += `
+            <input type="hidden" name="item_name_${idx}" value="${item.name} (${item.size})">
+            <input type="hidden" name="amount_${idx}" value="${item.price}">
+            <input type="hidden" name="quantity_${idx}" value="${item.qty}">
+        `;
+    });
+
+    container.innerHTML += `
+        <div class="card">
+            ${cartList}
+            <div style="margin-top: 20px; text-align: right; font-size: 1.5rem; color: var(--color-purple);">
+                <strong>Total: $${total.toFixed(2)}</strong>
+            </div>
+            <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_blank">
+                ${paypalInputs}
+                <button type="submit" class="btn btn-primary" style="margin-top: 20px; font-size: 1.2rem;">Pay with <span style="font-weight: bold; font-style: italic;">PayPal</span></button>
+            </form>
+        </div>
+    `;
+
+    container.querySelectorAll('.remove-btn').forEach(btn => {
+        btn.onclick = () => {
+            store.removeFromCart(btn.dataset.pid, btn.dataset.sz);
+            navigateTo('checkout');
+        };
+    });
+
     return container;
 }
 
@@ -368,6 +1065,9 @@ const routes = {
     'home': renderHome,
     'calendar': renderCalendar,
     'profile': renderProfile,
+    'social': renderSocial,
+    'shop': renderShop,
+    'checkout': renderCheckout,
     'admin': renderAdmin
 };
 
@@ -375,6 +1075,12 @@ window.navigateTo = function(route) {
     app.innerHTML = '';
     const user = store.getCurrentUser();
     if (!user && route !== 'auth') route = 'auth';
+
+    // Banner
+    const banner = document.createElement('div');
+    banner.className = 'club-banner';
+    banner.innerText = 'Ultra Mediocre Runners of Canberra';
+    app.appendChild(banner);
 
     const renderFn = routes[route] || routes['home'];
     const view = renderFn(window.navigateTo);
@@ -387,26 +1093,14 @@ window.navigateTo = function(route) {
 function createBackground() {
     const bg = document.createElement('div');
     bg.className = 'app-background';
-    const overlay = document.createElement('div');
-    overlay.className = 'overlay-pattern';
-    
     const wrapper = document.createElement('div');
     wrapper.style.position = 'fixed';
     wrapper.style.width = '100%';
     wrapper.style.height = '100%';
+    wrapper.style.top = '0';
+    wrapper.style.left = '0';
     wrapper.style.zIndex = '-1';
-    
     wrapper.appendChild(bg);
-    wrapper.appendChild(overlay);
-
-    for (let i = 0; i < 6; i++) {
-        const shroom = document.createElement('div');
-        shroom.className = 'mushroom';
-        shroom.style.left = Math.random() * 90 + '%';
-        shroom.style.top = Math.random() * 90 + '%';
-        shroom.style.transform = `rotate(${Math.random() * 360}deg) scale(${0.5 + Math.random()})`;
-        wrapper.appendChild(shroom);
-    }
     return wrapper;
 }
 
@@ -416,18 +1110,30 @@ function renderNavbar(currentRoute) {
     
     const items = [
         { icon: 'home', route: 'home', label: 'Home' },
+        { icon: 'groups', route: 'social', label: 'Social' },
         { icon: 'event', route: 'calendar', label: 'Events' },
+        { icon: 'shopping_bag', route: 'shop', label: 'Shop' },
         { icon: 'person', route: 'profile', label: 'Profile' }
     ];
 
     const user = store.getCurrentUser();
     if (user && user.role === 'admin') items.push({ icon: 'admin_panel_settings', route: 'admin', label: 'Admin' });
 
+    // Persistent Logout in Nav
+    items.push({ icon: 'logout', route: 'logout', label: 'Logout' });
+
     items.forEach(item => {
         const div = document.createElement('div');
         div.className = `nav-item ${currentRoute === item.route ? 'active' : ''}`;
         div.innerHTML = `<span class="material-icons-round">${item.icon}</span><span>${item.label}</span>`;
-        div.onclick = () => window.navigateTo(item.route);
+        div.onclick = () => {
+             if (item.route === 'logout') {
+                 store.logout();
+                 window.navigateTo('auth');
+             } else {
+                 window.navigateTo(item.route);
+             }
+        };
         nav.appendChild(div);
     });
     return nav;
