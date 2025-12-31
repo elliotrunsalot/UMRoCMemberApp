@@ -121,15 +121,17 @@ class Store {
 
     async init() {
         try {
-            // Fetch initial data from API
-            const [usersRes, eventsRes, productsRes] = await Promise.all([
-                fetch('http://localhost:3000/users'),
-                fetch('http://localhost:3000/events'),
-                fetch('http://localhost:3000/products')
+            // Fetch initial data from API - use allSettled so one failure doesn't block others
+            const results = await Promise.allSettled([
+                fetch('http://localhost:3306/users'),
+                fetch('http://localhost:3306/events'),
+                fetch('http://localhost:3306/products')
             ]);
 
-            if (usersRes.ok) {
-                const users = await usersRes.json();
+            const [usersResult, eventsResult, productsResult] = results;
+
+            if (usersResult.status === 'fulfilled' && usersResult.value.ok) {
+                const users = await usersResult.value.json();
                 this.data.users = users.map(u => ({
                     ...u,
                     // Parse JSON fields if they come back as strings (common in some SQL drivers)
@@ -145,8 +147,14 @@ class Store {
                     emergencyContactMobile: u.emergency_contact_mobile || u.emergencyContactMobile
                 }));
             }
-            if (eventsRes.ok) this.data.events = await eventsRes.json();
-            if (productsRes.ok) this.data.products = await productsRes.json();
+
+            if (eventsResult.status === 'fulfilled' && eventsResult.value.ok) {
+                 this.data.events = await eventsResult.value.json();
+            }
+
+            if (productsResult.status === 'fulfilled' && productsResult.value.ok) {
+                 this.data.products = await productsResult.value.json();
+            }
             
             this.save(); // Sync to local storage for offline resilience (optional)
         } catch (e) {
@@ -189,7 +197,7 @@ class Store {
             this.save();
             
             // API Call
-            await fetch(`http://localhost:3000/users/${id}`, {
+            await fetch(`http://localhost:3306/users/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates)
@@ -236,7 +244,7 @@ class Store {
             this.save();
             
             // API Call
-            await fetch(`http://localhost:3000/events/${eventId}/rsvp`, {
+            await fetch(`http://localhost:3306/events/${eventId}/rsvp`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: user.id, status })
@@ -259,7 +267,7 @@ class Store {
         this.save();
         
         // API Call
-        await fetch('http://localhost:3000/events', {
+        await fetch('http://localhost:3306/events', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -288,7 +296,7 @@ class Store {
         this.save();
         
         // API Call
-        await fetch('http://localhost:3000/users', {
+        await fetch('http://localhost:3306/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newUser)
@@ -356,7 +364,7 @@ class Store {
         this.save();
         
         // API Call
-        await fetch('http://localhost:3000/orders', {
+        await fetch('http://localhost:3306/orders', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(order)
@@ -373,6 +381,25 @@ class Store {
 }
 
 const store = new Store();
+
+function formatEventDate(dateInput) {
+    if (!dateInput) return 'Invalid date';
+    // Ensure ISO format (replace space with T if needed)
+    const safeDate = dateInput.replace(' ', 'T');
+    const date = new Date(safeDate);
+    if (isNaN(date.getTime())) return 'Invalid date';
+    
+    // Format: "Thu 22 Jan 2026, 5:15PM"
+    const dayName = date.toLocaleDateString('en-AU', { weekday: 'short' });
+    const dayNum = date.getDate();
+    const month = date.toLocaleDateString('en-AU', { month: 'short' });
+    const year = date.getFullYear();
+    let time = date.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true });
+    // Remove space before AM/PM and ensure uppercase
+    time = time.replace(' ', '').toUpperCase();
+
+    return `${dayName} ${dayNum} ${month} ${year}, ${time}`;
+}
 
 
 /* --- VIEWS --- */
@@ -515,7 +542,7 @@ function renderCalendar(navigateTo) {
 
         card.innerHTML = `
             <h3>${evt.title}</h3>
-            <p style="font-weight: bold; color: var(--color-pink);">${new Date(evt.date).toDateString()}</p>
+            <p style="font-weight: bold; color: var(--color-pink);">${formatEventDate(evt.date)}</p>
             <p style="margin: 10px 0;">${evt.description}</p>
              <div style="margin-top: 15px; padding-top: 10px; border-top: 2px dashed #eee;">
                 <label>Your RSVP:</label>
@@ -530,7 +557,6 @@ function renderCalendar(navigateTo) {
         card.querySelectorAll('.rsvp-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 store.rsvp(evt.id, btn.dataset.val);
-                alert(`You marked yourself as ${btn.dataset.val}!`);
                 navigateTo('calendar');
             });
         });
@@ -675,12 +701,21 @@ function renderProfile(navigateTo) {
                 <div class="form-group"><label>Email Address</label><input type="email" id="email" value="${user.email}"></div>
                 <div class="form-group"><label>Mobile Phone</label><input type="tel" id="mobile" value="${user.mobile || ''}"></div>
                 
+                ${isAdmin ? `
+                <div style="background: rgba(0,0,0,0.05); padding: 10px; border-radius: 5px; margin: 10px 0;">
+                    <h4 style="margin-top:0; color: var(--color-purple);">Admin Controls</h4>
+                    <div class="form-group"><label>UMNUM</label><input type="text" id="umnum" value="${user.umnum || ''}"></div>
+                    <div class="form-group"><label>Password</label><input type="text" id="password" value="${user.password || ''}"></div>
+                    <div class="form-group"><label>Permanent Race Number</label><input type="text" id="permRaceNum" value="${user.permRaceNum || ''}"></div>
+                    <div class="form-group"><label>Join Date</label><input type="date" id="joinDate" value="${user.joinDate || ''}"></div>
+                    <div class="form-group"><label>Nickname</label><input type="text" id="nickname" value="${user.nickname}"></div>
+                </div>
+                ` : ''}
+
                 <hr style="margin: 20px 0; border: 1px dashed var(--color-purple);">
                 
                 <div class="form-group"><label>Emergency Contact Name</label><input type="text" id="ecName" value="${user.emergencyContactName || ''}"></div>
                 <div class="form-group"><label>Emergency Contact Mobile</label><input type="tel" id="ecMobile" value="${user.emergencyContactMobile || ''}"></div>
-
-                ${isAdmin ? `<div class="form-group"><label>Nickname (Admin Only)</label><input type="text" id="nickname" value="${user.nickname}"></div>` : ''}
 
                 <button type="submit" class="btn btn-primary">Save Changes</button>
             </form>
@@ -715,6 +750,10 @@ function renderProfile(navigateTo) {
         };
         if (isAdmin) {
             updates.nickname = container.querySelector('#nickname').value;
+            updates.umnum = container.querySelector('#umnum').value;
+            updates.password = container.querySelector('#password').value;
+            updates.permRaceNum = container.querySelector('#permRaceNum').value;
+            updates.joinDate = container.querySelector('#joinDate').value;
         }
         store.updateUser(user.id, updates);
         alert('Profile Updated!');
@@ -851,8 +890,8 @@ function renderAdmin(navigateTo) {
     const loadBlasts = async () => {
         try {
             blastContainer.innerHTML = 'Loading...';
-            // Attempt to fetch from local backend (Port 3000)
-            const res = await fetch('http://localhost:3000/blast-messages');
+            // Attempt to fetch from local backend (Port 3306)
+            const res = await fetch('http://localhost:3306/blast-messages');
             if(res.ok) {
                 blastState.items = await res.json();
                 blastState.index = 0;
@@ -891,7 +930,7 @@ function renderAdmin(navigateTo) {
                 sent_by: currentUser.nickname
             };
             
-            const res = await fetch('http://localhost:3000/blast-messages', {
+            const res = await fetch('http://localhost:3306/blast-messages', {
                  method: 'POST',
                  headers: { 'Content-Type': 'application/json' },
                  body: JSON.stringify(payload)
