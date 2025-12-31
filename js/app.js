@@ -119,6 +119,41 @@ class Store {
         localStorage.setItem(STORE_KEY, JSON.stringify(this.data));
     }
 
+    async init() {
+        try {
+            // Fetch initial data from API
+            const [usersRes, eventsRes, productsRes] = await Promise.all([
+                fetch('http://localhost:3000/users'),
+                fetch('http://localhost:3000/events'),
+                fetch('http://localhost:3000/products')
+            ]);
+
+            if (usersRes.ok) {
+                const users = await usersRes.json();
+                this.data.users = users.map(u => ({
+                    ...u,
+                    // Parse JSON fields if they come back as strings (common in some SQL drivers)
+                    // Postgres pg driver parses JSON automatically, but good to be safe if local state differs
+                    raceHistory: typeof u.race_history === 'string' ? JSON.parse(u.race_history) : (u.race_history || []),
+                    awards: typeof u.awards === 'string' ? JSON.parse(u.awards) : (u.awards || []),
+                    // Map snake_case to CamelCase for frontend consistency
+                    firstName: u.first_name || u.firstName,
+                    surname: u.surname,
+                    permRaceNum: u.perm_race_num || u.permRaceNum,
+                    joinDate: u.join_date || u.joinDate,
+                    emergencyContactName: u.emergency_contact_name || u.emergencyContactName,
+                    emergencyContactMobile: u.emergency_contact_mobile || u.emergencyContactMobile
+                }));
+            }
+            if (eventsRes.ok) this.data.events = await eventsRes.json();
+            if (productsRes.ok) this.data.products = await productsRes.json();
+            
+            this.save(); // Sync to local storage for offline resilience (optional)
+        } catch (e) {
+            console.error('Failed to init from DB', e);
+        }
+    }
+
     login(umnum, password) {
         // Login by UMNUM now
         const user = this.data.users.find(u => u.umnum === umnum && u.password === password);
@@ -144,7 +179,7 @@ class Store {
         return this.data.currentUser;
     }
 
-    updateUser(id, updates) {
+    async updateUser(id, updates) {
         const idx = this.data.users.findIndex(u => u.id === id);
         if (idx !== -1) {
             this.data.users[idx] = { ...this.data.users[idx], ...updates };
@@ -152,24 +187,37 @@ class Store {
                 this.data.currentUser = this.data.users[idx];
             }
             this.save();
+            
+            // API Call
+            await fetch(`http://localhost:3000/users/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates)
+            }).catch(e => console.error('DB Update Failed', e));
         }
     }
 
-    addRace(userId, raceName, raceDate) {
+    async addRace(userId, raceName, raceDate) {
         const idx = this.data.users.findIndex(u => u.id === userId);
         if (idx !== -1) {
             if (!this.data.users[idx].raceHistory) this.data.users[idx].raceHistory = [];
             this.data.users[idx].raceHistory.push({ name: raceName, date: raceDate });
             this.save();
+            
+             // API Call (Update User)
+            await this.updateUser(userId, { raceHistory: this.data.users[idx].raceHistory });
         }
     }
 
-    addAward(userId, type, year) {
+    async addAward(userId, type, year) {
         const idx = this.data.users.findIndex(u => u.id === userId);
         if (idx !== -1) {
             if (!this.data.users[idx].awards) this.data.users[idx].awards = [];
             this.data.users[idx].awards.push({ type, year });
             this.save();
+            
+            // API Call (Update User)
+            await this.updateUser(userId, { awards: this.data.users[idx].awards });
         }
     }
 
@@ -177,7 +225,7 @@ class Store {
         return this.data.events;
     }
 
-    rsvp(eventId, status) {
+    async rsvp(eventId, status) {
         const user = this.getCurrentUser();
         if (!user) return;
 
@@ -186,24 +234,39 @@ class Store {
             evt.rsvps = evt.rsvps.filter(r => r.userId !== user.id);
             evt.rsvps.push({ userId: user.id, status, timestamp: new Date().toISOString() });
             this.save();
+            
+            // API Call
+            await fetch(`http://localhost:3000/events/${eventId}/rsvp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id, status })
+            }).catch(e => console.error('RSVP Failed', e));
         }
     }
 
-    addEvent(title, date, description) {
+    async addEvent(title, date, description) {
         const id = 'e' + Date.now();
-        this.data.events.push({
+        const payload = {
             id,
             title,
             date,
             description,
-            rsvps: []
-        });
+            rsvps: [] // Init
+        };
+        this.data.events.push(payload);
         // Keep events sorted by date
         this.data.events.sort((a, b) => new Date(a.date) - new Date(b.date));
         this.save();
+        
+        // API Call
+        await fetch('http://localhost:3000/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).catch(e => console.error('Add Event Failed', e));
     }
 
-    addMember(details) {
+    async addMember(details) {
         const maxUmnum = this.data.users.reduce((max, u) => Math.max(max, parseInt(u.umnum || '0')), 0);
         const newUmnum = String(maxUmnum + 1).padStart(3, '0');
         const password = 'welcome' + newUmnum; // Simple default password
@@ -223,6 +286,14 @@ class Store {
 
         this.data.users.push(newUser);
         this.save();
+        
+        // API Call
+        await fetch('http://localhost:3000/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newUser)
+        }).catch(e => console.error('Add Member Failed', e));
+
         return { umnum: newUmnum, password };
     }
 
@@ -269,7 +340,7 @@ class Store {
         this.save();
     }
 
-    placeOrder(details) {
+    async placeOrder(details) {
         if (!this.data.orders) this.data.orders = [];
         const order = {
             id: 'ord_' + Date.now(),
@@ -283,6 +354,13 @@ class Store {
         this.data.orders.push(order);
         this.clearCart();
         this.save();
+        
+        // API Call
+        await fetch('http://localhost:3000/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(order)
+        }).catch(e => console.error('Order Failed', e));
     }
 
     updateOrder(orderId, updates) {
@@ -594,7 +672,7 @@ function renderProfile(navigateTo) {
                 </div>
                 
                 <div class="form-group"><label>Home Address</label><textarea id="address" rows="3">${user.address || ''}</textarea></div>
-                <div class="form-group"><label>Email Address</label><input type="email" id="email" value="${user.email}" disabled style="background: #eee;"></div>
+                <div class="form-group"><label>Email Address</label><input type="email" id="email" value="${user.email}"></div>
                 <div class="form-group"><label>Mobile Phone</label><input type="tel" id="mobile" value="${user.mobile || ''}"></div>
                 
                 <hr style="margin: 20px 0; border: 1px dashed var(--color-purple);">
@@ -630,6 +708,7 @@ function renderProfile(navigateTo) {
             dob: container.querySelector('#dob').value,
             gender: container.querySelector('#gender').value,
             address: container.querySelector('#address').value,
+            email: container.querySelector('#email').value,
             mobile: container.querySelector('#mobile').value,
             emergencyContactName: container.querySelector('#ecName').value,
             emergencyContactMobile: container.querySelector('#ecMobile').value,
@@ -666,8 +745,19 @@ function renderAdmin(navigateTo) {
         <h1>Club Command Center</h1>
         <div class="card">
             <h2>📢 Blast Communications</h2>
-            <textarea id="msg-text" rows="4" placeholder="Hello {{nickname}}..."></textarea>
-            <button id="send-btn" class="btn btn-primary">Send Blast</button>
+            <textarea id="msg-text" rows="4" placeholder="Write your update here... (We'll add 'Hi [Nickname]' automatically)"></textarea>
+            <div style="text-align: right; margin-top: 10px;">
+                <button id="send-btn" class="btn btn-primary">Send Blast</button>
+            </div>
+            
+            <hr style="margin: 20px 0; border: 1px dashed var(--color-purple);">
+            <h3>Broadcast History</h3>
+            <div id="blast-history-container" style="min-height: 120px; padding: 15px; background: rgba(255,255,255,0.7); border-radius: 10px; border: 1px solid rgba(0,0,0,0.1);"></div>
+             <div id="blast-nav" style="display: flex; justify-content: center; gap: 20px; margin-top: 10px; align-items: center;">
+                 <button id="prev-blast" class="btn btn-secondary" style="padding: 5px 15px;" disabled>&lt;</button>
+                 <span id="blast-counter" style="font-weight: bold; font-family: 'Patrick Hand', cursive; font-size: 1.2rem;">0 / 0</span>
+                 <button id="next-blast" class="btn btn-secondary" style="padding: 5px 15px;" disabled>&gt;</button>
+            </div>
         </div>
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -722,6 +812,105 @@ function renderAdmin(navigateTo) {
     `;
 
     const membersList = container.querySelector('#members-list');
+
+    /* --- BLAST MESSAGE LOGIC --- */
+    const blastState = { items: [], index: 0 };
+    const blastContainer = container.querySelector('#blast-history-container');
+    const blastCounter = container.querySelector('#blast-counter');
+    const btnPrev = container.querySelector('#prev-blast');
+    const btnNext = container.querySelector('#next-blast');
+
+    const renderBlast = () => {
+        if (blastState.items.length === 0) {
+            blastContainer.innerHTML = '<em style="color:#666;">No history available (or DB offline).</em>';
+            blastCounter.innerText = '0 / 0';
+            btnPrev.disabled = true;
+            btnNext.disabled = true;
+            return;
+        }
+        
+        const msg = blastState.items[blastState.index];
+        const dateStr = new Date(msg.date_sent).toLocaleString();
+        
+        blastContainer.innerHTML = `
+            <div style="animation: fadeIn 0.3s;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px; border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+                    <strong style="color:var(--color-purple); font-size: 1.1rem;">${msg.subject || 'Member Update'}</strong>
+                    <span style="font-size:0.8rem; color:#666;">${dateStr}</span>
+                </div>
+                <p style="white-space: pre-wrap; font-family: sans-serif; line-height: 1.5;">${msg.message}</p>
+                <div style="text-align:right; font-size:0.7rem; color:#999; margin-top:10px;">Sent by: ${msg.sent_by || 'Admin'}</div>
+            </div>
+        `;
+        
+        blastCounter.innerText = `${blastState.index + 1} / ${blastState.items.length}`;
+        btnPrev.disabled = blastState.index === 0;
+        btnNext.disabled = blastState.index === blastState.items.length - 1;
+    };
+
+    const loadBlasts = async () => {
+        try {
+            blastContainer.innerHTML = 'Loading...';
+            // Attempt to fetch from local backend (Port 3000)
+            const res = await fetch('http://localhost:3000/blast-messages');
+            if(res.ok) {
+                blastState.items = await res.json();
+                blastState.index = 0;
+            } else {
+                 throw new Error('API Error');
+            }
+        } catch(e) {
+            console.log('Backend unreachable for blasts');
+             // Fallback for visual demonstration if backend is off
+            blastState.items = []; 
+        }
+        renderBlast();
+    };
+
+    btnPrev.onclick = () => { if(blastState.index > 0) { blastState.index--; renderBlast(); } };
+    btnNext.onclick = () => { if(blastState.index < blastState.items.length - 1) { blastState.index++; renderBlast(); } };
+
+    // Initial Load
+    loadBlasts();
+
+    // Send Logic
+    container.querySelector('#send-btn').addEventListener('click', async () => {
+        const txt = container.querySelector('#msg-text').value;
+        if(!txt) return;
+        
+        const btn = container.querySelector('#send-btn');
+        const oldText = btn.innerText;
+        btn.innerText = 'Sending...';
+        btn.disabled = true;
+
+        try {
+            const payload = {
+                id: 'bm_' + Date.now(),
+                subject: 'UMRoC Official Update',
+                message: txt,
+                sent_by: currentUser.nickname
+            };
+            
+            const res = await fetch('http://localhost:3000/blast-messages', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify(payload)
+            });
+            
+            if(res.ok) {
+                alert('Blast sent successfully!');
+                container.querySelector('#msg-text').value = '';
+                loadBlasts(); // Refresh
+            } else {
+                throw new Error('Failed');
+            }
+        } catch(e) {
+            alert('Failed to send blast. Is the local database running?');
+        } finally {
+            btn.innerText = oldText;
+            btn.disabled = false;
+        }
+    });
     
     // Helper to generate full edit form for a user
     const createEditForm = (u) => `
@@ -1336,7 +1525,10 @@ function renderNavbar(currentRoute) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-    const user = store.getCurrentUser();
-    if (user) window.navigateTo('home');
-    else window.navigateTo('auth');
+    // Async Init
+    store.init().then(() => {
+        const user = store.getCurrentUser();
+        if (user) window.navigateTo('home');
+        else window.navigateTo('auth');
+    });
 });

@@ -60,3 +60,12 @@ VALUES
 ('e1', 'Sufferfest', '2025-10-31 08:00:00', 'How many times can you run up Stockyard spur in 6hrs?', '[]'),
 ('e2', 'Grindfest', '2025-11-05 08:00:00', '6 hrs on the hard stuff.', '[]'),
 ('e3', 'Jingleballs', '2025-12-05 07:00:00', 'Bring Christmas cheer. We will supply the balls.', '[]');
+
+-- Blast Messages Table
+CREATE TABLE IF NOT EXISTS blast_messages (
+    id VARCHAR(50) PRIMARY KEY,
+    subject VARCHAR(255),
+    message TEXT,
+    date_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    sent_by VARCHAR(50)
+);

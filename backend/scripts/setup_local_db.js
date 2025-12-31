@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 const schemaPath = path.join(__dirname, '../schema_mysql.sql');
 
@@ -22,7 +23,8 @@ async function main() {
             host: config.host,
             user: config.user,
             password: config.password,
-            port: config.port
+            port: config.port,
+            multipleStatements: true
         });
 
         console.log('Connected. Creating database if needed...');
