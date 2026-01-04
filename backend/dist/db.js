@@ -88,7 +88,7 @@ async function getDbClient() {
     const dbConfig = {
         host: process.env.DB_HOST || 'localhost',
         user: process.env.DB_USER || 'root',
-        password: process.env.DB_PASSWORD || '', // Empty password default for local MySQL
+        password: process.env.DB_PASSWORD || '100%UMRoC', // Empty password default for local MySQL
         database: process.env.DB_NAME || 'umroc_member_app',
         port: parseInt(process.env.DB_PORT || (dbType === 'mysql' ? '3306' : '5432')),
         // ssl: { rejectUnauthorized: false } // Only for RDS
