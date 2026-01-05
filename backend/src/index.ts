@@ -68,7 +68,8 @@ app.put('/users/:id', async (req, res) => {
             firstName: 'first_name', surname: 'surname', nickname: 'nickname', email: 'email',
             role: 'role', dob: 'dob', gender: 'gender', address: 'address', mobile: 'mobile',
             emergencyContactName: 'emergency_contact_name', emergencyContactMobile: 'emergency_contact_mobile',
-            umnum: 'umnum', permRaceNum: 'perm_race_num', joinDate: 'join_date', avatar: 'avatar'
+            umnum: 'umnum', permRaceNum: 'perm_race_num', joinDate: 'join_date', avatar: 'avatar',
+            inactiveDate: 'inactive_date', originalJoinDate: 'original_join_date'
         };
 
         for (const [key, val] of Object.entries(updates)) {
@@ -151,6 +152,20 @@ app.post('/events/:id/rsvp', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Error processing RSVP' });
+    }
+});
+
+app.put('/events/:id', async (req, res) => {
+    try {
+        const id = req.params.id;
+        const { status } = req.body;
+        const client = await getDbClient();
+
+        await client.query('UPDATE events SET status = $1 WHERE id = $2', [status, id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to update event' });
     }
 });
 

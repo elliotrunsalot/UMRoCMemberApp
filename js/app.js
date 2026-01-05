@@ -143,13 +143,21 @@ class Store {
                     surname: u.surname,
                     permRaceNum: u.perm_race_num || u.permRaceNum,
                     joinDate: u.join_date || u.joinDate,
+                    inactiveDate: u.inactive_date || u.inactiveDate,
+                    // Original join date for history tracking
+                    originalJoinDate: u.original_join_date || u.originalJoinDate,
                     emergencyContactName: u.emergency_contact_name || u.emergencyContactName,
                     emergencyContactMobile: u.emergency_contact_mobile || u.emergencyContactMobile
                 }));
             }
 
             if (eventsResult.status === 'fulfilled' && eventsResult.value.ok) {
-                 this.data.events = await eventsResult.value.json();
+                 const events = await eventsResult.value.json();
+                 this.data.events = events.map(e => ({
+                     ...e,
+                     date: e.event_date || e.date,
+                     rsvps: typeof e.rsvps === 'string' ? JSON.parse(e.rsvps) : (e.rsvps || [])
+                 }));
             }
 
             if (productsResult.status === 'fulfilled' && productsResult.value.ok) {
@@ -203,6 +211,25 @@ class Store {
                 body: JSON.stringify(updates)
             }).catch(e => console.error('DB Update Failed', e));
         }
+    }
+
+    async deactivateUser(id) {
+        const today = new Date().toISOString().split('T')[0];
+        await this.updateUser(id, { inactiveDate: today });
+    }
+
+    async reactivateUser(id) {
+        const user = this.data.users.find(u => u.id === id);
+        if (!user) return;
+
+        const today = new Date().toISOString().split('T')[0];
+        const updates = {
+            inactiveDate: null,
+            joinDate: today,
+            originalJoinDate: user.originalJoinDate || user.joinDate // Preserve existing original date or set it now
+        };
+        
+        await this.updateUser(id, updates);
     }
 
     async addRace(userId, raceName, raceDate) {
@@ -272,6 +299,19 @@ class Store {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         }).catch(e => console.error('Add Event Failed', e));
+    }
+
+    async cancelEvent(id) {
+        const evt = this.data.events.find(e => e.id === id);
+        if (evt) {
+            evt.status = 'cancelled';
+            this.save();
+            await fetch(`http://localhost:3000/events/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'cancelled' })
+            }).catch(e => console.error('Cancel Event Failed', e));
+        }
     }
 
     async addMember(details) {
@@ -393,7 +433,7 @@ const store = new Store();
 function formatEventDate(dateInput) {
     if (!dateInput) return 'Invalid date';
     // Ensure ISO format (replace space with T if needed)
-    const safeDate = dateInput.replace(' ', 'T');
+    const safeDate = String(dateInput).replace(' ', 'T');
     const date = new Date(safeDate);
     if (isNaN(date.getTime())) return 'Invalid date';
     
@@ -537,30 +577,55 @@ function renderCalendar(navigateTo) {
     container.innerHTML = `<h1 style="color: var(--color-white); text-align: center; margin-bottom: 20px;">Groovy Events</h1><div id="calendar-list"></div>`;
 
     const list = container.querySelector('#calendar-list');
-    const events = store.getEvents();
+    const events = [...store.getEvents()].sort((a, b) => new Date(b.date) - new Date(a.date));
     const isAdmin = user.role === 'admin';
 
     events.forEach(evt => {
         const card = document.createElement('div');
         card.className = 'card';
         
-        const myRsvp = evt.rsvps.find(r => r.userId === user.id);
+        const rsvps = evt.rsvps || [];
+        const myRsvp = rsvps.find(r => r.userId === user.id);
         const status = myRsvp ? myRsvp.status : 'pending';
-        const attendingCount = evt.rsvps.filter(r => r.status === 'attending').length;
+        const attendingCount = rsvps.filter(r => r.status === 'attending').length;
+
+        const isCancelled = evt.status === 'cancelled';
+        const isPast = new Date(evt.date) < new Date();
+
+        card.style.position = 'relative'; // Ensure absolute positioning works for children
 
         card.innerHTML = `
-            <h3>${evt.title}</h3>
-            <p style="font-weight: bold; color: var(--color-pink);">${formatEventDate(evt.date)}</p>
-            <p style="margin: 10px 0;">${evt.description}</p>
-             <div style="margin-top: 15px; padding-top: 10px; border-top: 2px dashed #eee;">
+            ${isAdmin && !isCancelled && !isPast ? `<button class="cancel-evt-btn" style="position: absolute; top: 15px; right: 15px; padding: 4px 8px; font-size: 0.8rem; background: #ff4444; color: white; border: none; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">Cancel Event</button>` : ''}
+            <h3 style="${isCancelled ? 'text-decoration: line-through; color: #999;' : ''}; padding-right: ${isAdmin && !isCancelled ? '90px' : '0'};">${evt.title} ${isCancelled ? '<span style="color:red; font-size: 0.8em;">(CANCELLED)</span>' : ''}</h3>
+            <p style="font-weight: bold; color: var(--color-pink); text-decoration: ${isCancelled ? 'line-through' : 'none'};">${formatEventDate(evt.date)}</p>
+            <p style="margin: 10px 0; color: ${isCancelled ? '#999' : 'inherit'};">${evt.description}</p>
+            
+            ${!isCancelled ? (isPast ? '' : `
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 2px dashed #eee;">
                 <label>Your RSVP:</label>
                 <div style="display: flex; gap: 10px; margin-top: 5px;">
                     <button class="rsvp-btn btn ${status === 'attending' ? 'btn-primary' : 'btn-secondary'}" data-val="attending">Attending</button>
                     <button class="rsvp-btn btn ${status === 'not_attending' ? 'btn-primary' : 'btn-secondary'}" data-val="not_attending" style="background: #ccc;">Can't Make It</button>
                 </div>
-            </div>
-            ${isAdmin ? `<div style="margin-top: 15px; background: rgba(0,0,0,0.05); padding: 10px; border-radius: 10px;"><strong>Admin:</strong> ${attendingCount} attending</div>` : ''}
+            </div>`) : '<div style="margin-top: 15px; padding: 10px; background: #ffe6e6; border: 1px solid red; border-radius: 5px; color: red; text-align: center; font-weight: bold;">EVENT CANCELLED</div>'}
+            
+            ${isAdmin ? `
+            <div style="margin-top: 15px; background: rgba(0,0,0,0.05); padding: 10px; border-radius: 10px;">
+                <strong>Admin:</strong> ${attendingCount} attending
+            </div>` : ''}
         `;
+
+        if (isAdmin && !isCancelled) {
+            const cancelBtn = card.querySelector('.cancel-evt-btn');
+            if(cancelBtn) {
+                cancelBtn.onclick = () => {
+                   if(confirm('Are you sure you want to cancel this event?')) {
+                       store.cancelEvent(evt.id);
+                       navigateTo('calendar');
+                   }
+                };
+            }
+        }
 
         card.querySelectorAll('.rsvp-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -999,7 +1064,14 @@ function renderAdmin(navigateTo) {
 
             <div style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 10px; display: flex; justify-content: space-between;">
                 <button class="save-adm btn-primary" style="padding: 10px; font-size: 0.9rem;">Save Details</button>
-                ${u.id !== currentUser.id ? `<button class="toggle-role btn-secondary" style="padding: 10px; font-size: 0.9rem; background: #666;">${u.role === 'admin' ? 'Demote' : 'Promote'}</button>` : ''}
+                <div style="display:flex; gap:10px;">
+                    ${u.id !== currentUser.id && !u.inactiveDate ? `<button class="toggle-role btn-secondary" style="padding: 10px; font-size: 0.9rem; background: #666;">${u.role === 'admin' ? 'Demote' : 'Promote'}</button>` : ''}
+                    
+                    ${!u.inactiveDate ? 
+                        `<button class="deactivate-btn btn-secondary" style="padding: 10px; font-size: 0.9rem; background: #cc0000; border-color: #990000;">Deactivate</button>` : 
+                        `<button class="reactivate-btn btn-secondary" style="padding: 10px; font-size: 0.9rem; background: #00cc00; border-color: #009900;">Reactivate</button>`
+                    }
+                </div>
             </div>
         </div>
     `;
@@ -1008,6 +1080,11 @@ function renderAdmin(navigateTo) {
         const row = document.createElement('div');
         row.className = 'card';
         row.style.margin = '10px 0';
+        if (u.inactiveDate) {
+            row.style.border = '2px solid gray';
+            row.style.opacity = '0.8';
+            row.style.background = '#f0f0f0'; // Grayish background to indicate inactive
+        }
         
         row.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -1052,6 +1129,28 @@ function renderAdmin(navigateTo) {
             roleBtn.onclick = () => {
                 store.updateUser(u.id, { role: u.role === 'admin' ? 'member' : 'admin' });
                 navigateTo('admin');
+            };
+        }
+
+        // Deactivate Logic
+        const deactBtn = row.querySelector('.deactivate-btn');
+        if (deactBtn) {
+            deactBtn.onclick = () => {
+                if(confirm('Are you sure you want to deactivate this member? They will lose access immediately.')) {
+                    store.deactivateUser(u.id);
+                    navigateTo('admin');
+                }
+            };
+        }
+
+        // Reactivate Logic
+        const reactBtn = row.querySelector('.reactivate-btn');
+        if (reactBtn) {
+            reactBtn.onclick = () => {
+                if(confirm('Reactivate this member? This will start a new membership period.')) {
+                    store.reactivateUser(u.id);
+                    navigateTo('admin');
+                }
             };
         }
         
@@ -1288,6 +1387,7 @@ function renderSocial(navigateTo) {
         // Code: if (u.id === currentUser.id) return;
         
         if (u.id === currentUser.id) return;
+        if (u.inactiveDate) return; // Hide inactive members
 
         const card = document.createElement('div');
         card.className = 'card';

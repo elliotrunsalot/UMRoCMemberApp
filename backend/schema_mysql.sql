@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
     race_history JSON, 
     awards JSON,
     join_date DATE DEFAULT (CURRENT_DATE),
+    inactive_date DATE,
+    original_join_date DATE,
     avatar TEXT
 );
 
@@ -27,6 +29,7 @@ CREATE TABLE IF NOT EXISTS events (
     title VARCHAR(255) NOT NULL,
     event_date TIMESTAMP NOT NULL,
     description TEXT,
+    status VARCHAR(20) DEFAULT 'active',
     rsvps JSON
 );
 
