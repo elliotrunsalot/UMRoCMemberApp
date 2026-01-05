@@ -1,9 +1,5 @@
-import { Client } from 'pg';
-import * as AWS from 'aws-sdk';
+import * as mysql from 'mysql2/promise';
 
-const ssm = new AWS.SSM();
-
-// Interface compatible with pg.Client for our usage
 interface DbClient {
     connect(): Promise<void>;
     query(text: string, params?: any[]): Promise<{ rows: any[] }>;
@@ -21,9 +17,6 @@ class MySQLClient implements DbClient {
     }
 
     async connect() {
-        // Dynamic require to avoid build issues if mysql2 isn't installed in prod env (if tailored)
-        // But for this hybrid approach we assume mysql2 is in dependencies
-        const mysql = require('mysql2/promise');
         this.conn = await mysql.createConnection({
             host: this.config.host,
             user: this.config.user,
@@ -31,23 +24,15 @@ class MySQLClient implements DbClient {
             database: this.config.database,
             port: this.config.port || 3306
         });
-        console.log('Connected to MySQL');
+        console.log(`Connected to MySQL at ${this.config.host}:${this.config.port || 3306} as ${this.config.user} on db ${this.config.database}`);
     }
 
     async query(text: string, params: any[] = []) {
-        // Convert Postgres $n syntax to MySQL ? syntax
-        // This simple regex works for linear parameters ($1, $2, $3...)
+        // Convert Postgres $n syntax to MySQL ? syntax for compatibility with existing queries
         const sql = text.replace(/\$\d+/g, '?');
 
-        // Handle serialization of objects/arrays if necessary (pg does this automatically for JSONB)
-        // mysql2 usually expects values. 
-        // Note: The app code manually uses JSON.stringify for some updates, so we might need to be careful.
-        // But for params passed as arrays/objects, mysql2 might need them stringified if the column is JSON.
-        // Let's rely on mysql2's default behavior first.
-
         const [rows] = await this.conn.execute(sql, params);
-        // Normalize result to match pg 'result.rows'
-        // 'execute' returns [rows, fields]
+        // Normalize result to match pg 'result.rows' structure expected by app
         return { rows: Array.isArray(rows) ? rows : [rows] };
     }
 
@@ -59,33 +44,16 @@ class MySQLClient implements DbClient {
 export async function getDbClient() {
     if (client) return client;
 
-    // Determine DB type. Default to Postgres for AWS safety, but check for local flag or specific config.
-    // Use DB_TYPE env var, or infer from DB_PORT (5432 vs 3306)
-    const dbType = process.env.DB_TYPE || (process.env.DB_PORT === '3306' ? 'mysql' : 'postgres');
-
-    // Default creds for local testing if env vars missing (User asked to "create the database... locally")
-    // We'll set sensible local defaults if on D: drive context (inferred by user request)
-    // but code should be robust.
+    // Default creds for local testing
     const dbConfig = {
         host: process.env.DB_HOST || 'localhost',
         user: process.env.DB_USER || 'root',
-        password: process.env.DB_PASSWORD || '', // Empty password default for local MySQL
+        password: process.env.DB_PASSWORD,
         database: process.env.DB_NAME || 'umroc_member_app',
-        port: parseInt(process.env.DB_PORT || (dbType === 'mysql' ? '3306' : '5432')),
-        // ssl: { rejectUnauthorized: false } // Only for RDS
+        port: parseInt(process.env.DB_PORT || '3306'),
     };
 
-    if (dbType === 'mysql') {
-        client = new MySQLClient(dbConfig);
-    } else {
-        // Postgres
-        const pgConfig = {
-            ...dbConfig,
-            ssl: process.env.DB_HOST && process.env.DB_HOST.includes('rds') ? { rejectUnauthorized: false } : undefined
-        };
-        client = new Client(pgConfig);
-    }
-
+    client = new MySQLClient(dbConfig);
     await client.connect();
     return client;
 }

@@ -1,9 +1,9 @@
 import 'dotenv/config';
-import serverless from 'serverless-http';
+// import serverless from 'serverless-http'; // Removed for local cleanup
 import express from 'express';
 import cors from 'cors';
 import { getDbClient } from './db';
-import * as AWS from 'aws-sdk';
+// import * as AWS from 'aws-sdk'; // Removed for local cleanup
 
 const app = express();
 app.use(cors());
@@ -206,38 +206,19 @@ app.post('/blast-messages', async (req, res) => {
         const usersRes = await client.query('SELECT email, nickname FROM users WHERE role != $1', ['banned']); // Assuming 'banned' usage or just all users
         const users = usersRes.rows;
 
-        // 3. Send Emails (Simulated/SES)
-        // Check if SES is reachable via env vars (simple check)
-        const ses = new AWS.SES({ region: process.env.AWS_REGION || 'us-east-1' });
-        const hasAwsCreds = process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY;
-
+        // 3. Send Emails (Simulated)
+        // Removed AWS SES logic for local cleanup
         console.log(`Starting blast to ${users.length} members...`);
 
         for (const user of users) {
             const personalGreeting = `Hi ${user.nickname || 'Runner'},\n\n`;
             const fullBody = personalGreeting + message;
 
-            if (hasAwsCreds) {
-                try {
-                    await ses.sendEmail({
-                        Source: 'updates@umroc.com', // Replace with verified sender
-                        Destination: { ToAddresses: [user.email] },
-                        Message: {
-                            Subject: { Data: subject },
-                            Body: { Text: { Data: fullBody } }
-                        }
-                    }).promise();
-                    console.log(`[SES] Sent to ${user.email}`);
-                } catch (e) {
-                    console.log(`[SES Error] Failed to send to ${user.email}:`, e);
-                }
-            } else {
-                // Simulation Mode for Local Dev without AWS keys
-                console.log(`\n--- SIMULATED EMAIL TO: ${user.email} ---\nSubject: ${subject}\n\n${fullBody}\n--------------------------------------`);
-            }
+            // Simulation Mode for Local Dev
+            console.log(`\n--- SIMULATED EMAIL TO: ${user.email} ---\nSubject: ${subject}\n\n${fullBody}\n--------------------------------------`);
         }
 
-        res.json({ success: true, count: users.length, mode: hasAwsCreds ? 'live' : 'simulated' });
+        res.json({ success: true, count: users.length, mode: 'simulated' });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to process blast message' });
@@ -252,4 +233,5 @@ if (require.main === module) {
     });
 }
 
-export const handler = serverless(app);
+export const handler = app; // Just export app for testing, though normally index.ts runs directly locally
+

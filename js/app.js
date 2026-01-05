@@ -123,9 +123,9 @@ class Store {
         try {
             // Fetch initial data from API - use allSettled so one failure doesn't block others
             const results = await Promise.allSettled([
-                fetch('http://localhost:3306/users'),
-                fetch('http://localhost:3306/events'),
-                fetch('http://localhost:3306/products')
+                fetch('http://localhost:3000/users'),
+                fetch('http://localhost:3000/events'),
+                fetch('http://localhost:3000/products')
             ]);
 
             const [usersResult, eventsResult, productsResult] = results;
@@ -197,7 +197,7 @@ class Store {
             this.save();
             
             // API Call
-            await fetch(`http://localhost:3306/users/${id}`, {
+            await fetch(`http://localhost:3000/users/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates)
@@ -244,7 +244,7 @@ class Store {
             this.save();
             
             // API Call
-            await fetch(`http://localhost:3306/events/${eventId}/rsvp`, {
+            await fetch(`http://localhost:3000/events/${eventId}/rsvp`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: user.id, status })
@@ -267,7 +267,7 @@ class Store {
         this.save();
         
         // API Call
-        await fetch('http://localhost:3306/events', {
+        await fetch('http://localhost:3000/events', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -296,7 +296,7 @@ class Store {
         this.save();
         
         // API Call
-        await fetch('http://localhost:3306/users', {
+        await fetch('http://localhost:3000/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newUser)
@@ -364,7 +364,7 @@ class Store {
         this.save();
         
         // API Call
-        await fetch('http://localhost:3306/orders', {
+        await fetch('http://localhost:3000/orders', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(order)
@@ -890,8 +890,8 @@ function renderAdmin(navigateTo) {
     const loadBlasts = async () => {
         try {
             blastContainer.innerHTML = 'Loading...';
-            // Attempt to fetch from local backend (Port 3306)
-            const res = await fetch('http://localhost:3306/blast-messages');
+            // Attempt to fetch from local backend (Port 3000)
+            const res = await fetch('http://localhost:3000/blast-messages');
             if(res.ok) {
                 blastState.items = await res.json();
                 blastState.index = 0;
@@ -930,7 +930,7 @@ function renderAdmin(navigateTo) {
                 sent_by: currentUser.nickname
             };
             
-            const res = await fetch('http://localhost:3306/blast-messages', {
+            const res = await fetch('http://localhost:3000/blast-messages', {
                  method: 'POST',
                  headers: { 'Content-Type': 'application/json' },
                  body: JSON.stringify(payload)
