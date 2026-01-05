@@ -1,9 +1,7 @@
 import 'dotenv/config';
-// import serverless from 'serverless-http'; // Removed for local cleanup
 import express from 'express';
 import cors from 'cors';
 import { getDbClient } from './db';
-// import * as AWS from 'aws-sdk'; // Removed for local cleanup
 
 const app = express();
 app.use(cors());
@@ -207,7 +205,6 @@ app.post('/blast-messages', async (req, res) => {
         const users = usersRes.rows;
 
         // 3. Send Emails (Simulated)
-        // Removed AWS SES logic for local cleanup
         console.log(`Starting blast to ${users.length} members...`);
 
         for (const user of users) {
