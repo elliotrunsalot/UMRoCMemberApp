@@ -277,18 +277,18 @@ class Store {
     async addMember(details) {
         const maxUmnum = this.data.users.reduce((max, u) => Math.max(max, parseInt(u.umnum || '0')), 0);
         const newUmnum = String(maxUmnum + 1).padStart(3, '0');
-        const password = 'welcome' + newUmnum; // Simple default password
+        const password = details.password || ('welcome' + newUmnum);
 
         const newUser = {
             id: 'u' + Date.now(),
             umnum: newUmnum,
             password: password,
-            role: 'member',
-            nickname: details.firstName, // Default nickname
+            role: details.role || 'member',
+            nickname: details.nickname || details.firstName,
             raceHistory: [],
             awards: [],
-            joinDate: new Date().toISOString().split('T')[0],
-            avatar: `https://api.dicebear.com/7.x/fun-emoji/svg?seed=${details.firstName}`,
+            joinDate: details.joinDate || new Date().toISOString().split('T')[0],
+            avatar: details.avatar || `https://api.dicebear.com/7.x/fun-emoji/svg?seed=${details.firstName}`,
             ...details
         };
 
@@ -296,11 +296,19 @@ class Store {
         this.save();
         
         // API Call
-        await fetch('http://localhost:3000/users', {
+        const res = await fetch('http://localhost:3000/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newUser)
-        }).catch(e => console.error('Add Member Failed', e));
+        });
+
+        if (!res.ok) {
+            console.error('Server returned error:', res.status, res.statusText);
+            // Optionally revert local change if desired, but for now we warn.
+            // this.data.users.pop(); this.save(); // Undo?
+            // "Poor man's sync" keeps local data.
+            throw new Error('Server failed to save member'); 
+        }
 
         return { umnum: newUmnum, password };
     }
@@ -817,8 +825,8 @@ function renderAdmin(navigateTo) {
         </div>
 
         <!-- Add Member Modal -->
-        <div id="add-member-modal" class="modal-overlay hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(42, 0, 51, 0.95); z-index: 2000; align-items: center; justify-content: center; display: none; overflow-y: auto;">
-            <div class="card" style="width: 95%; max-width: 600px; margin: 20px auto; box-shadow: 0 0 20px rgba(0,0,0,0.5);">
+        <div id="add-member-modal" class="modal-overlay hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(42, 0, 51, 0.95); z-index: 2000; display: none; overflow-y: auto;">
+            <div class="card" style="width: 95%; max-width: 600px; margin: 50px auto; box-shadow: 0 0 20px rgba(0,0,0,0.5);">
                 <h2 style="color: var(--color-purple); text-align:center;">Register New Member</h2>
                 <form id="add-member-form">
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
@@ -840,6 +848,19 @@ function renderAdmin(navigateTo) {
                     <h4 style="margin-top: 15px;">Emergency Contact</h4>
                     <div class="form-group"><label>Name</label><input type="text" id="new-ecname"></div>
                     <div class="form-group"><label>Mobile</label><input type="tel" id="new-ecmobile"></div>
+                    
+                    <div class="form-group"><label>Nickname</label><input type="text" id="new-nickname" required></div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group"><label>Role</label>
+                            <select id="new-role">
+                                <option value="member">Member</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                        <div class="form-group"><label>Join Date</label><input type="date" id="new-joindate" value="${new Date().toISOString().split('T')[0]}"></div>
+                    </div>
+                    <div class="form-group"><label>Avatar URL (Optional)</label><input type="text" id="new-avatar" placeholder="https://..."></div>
+                    <div class="form-group"><label>Password</label><input type="text" id="new-password" placeholder="Leave blank for auto-generated"></div>
                     
                     <div style="display: flex; gap: 10px; margin-top: 20px;">
                         <button type="button" id="cancel-add-member" class="btn btn-secondary">Cancel</button>
@@ -1042,7 +1063,7 @@ function renderAdmin(navigateTo) {
     const toggleAddMember = (show) => {
         if (show) {
             addMemberModal.classList.remove('hidden');
-            addMemberModal.style.display = 'flex';
+            addMemberModal.style.display = 'block';
         } else {
             addMemberModal.classList.add('hidden');
             addMemberModal.style.display = 'none';
@@ -1055,11 +1076,13 @@ function renderAdmin(navigateTo) {
         if (e.target === addMemberModal) toggleAddMember(false);
     });
 
-    container.querySelector('#add-member-form').addEventListener('submit', (e) => {
+    container.querySelector('#add-member-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        
         const details = {
             firstName: container.querySelector('#new-fname').value,
             surname: container.querySelector('#new-sname').value,
+            nickname: container.querySelector('#new-nickname').value,
             dob: container.querySelector('#new-dob').value,
             gender: container.querySelector('#new-gender').value,
             email: container.querySelector('#new-email').value,
@@ -1067,12 +1090,29 @@ function renderAdmin(navigateTo) {
             address: container.querySelector('#new-address').value,
             emergencyContactName: container.querySelector('#new-ecname').value,
             emergencyContactMobile: container.querySelector('#new-ecmobile').value,
+            role: container.querySelector('#new-role').value,
+            joinDate: container.querySelector('#new-joindate').value,
+            avatar: container.querySelector('#new-avatar').value,
+            password: container.querySelector('#new-password').value
         };
 
-        const creds = store.addMember(details);
-        alert(`Member Created!\nEmail sent to: ${details.email}\n\nCredentials:\nUMNUM: ${creds.umnum}\nPassword: ${creds.password}`);
-        toggleAddMember(false);
-        navigateTo('admin');
+        const btn = e.target.querySelector('button[type="submit"]');
+        const oldText = btn.innerText;
+        btn.innerText = 'Saving...';
+        btn.disabled = true;
+
+        try {
+            const creds = await store.addMember(details);
+            alert(`Member Created Successfully!\n\nDetails saved to database.\n\nCredentials:\nUMNUM: ${creds.umnum}\nPassword: ${creds.password}`);
+            toggleAddMember(false);
+            navigateTo('admin');
+        } catch (err) {
+            console.error(err);
+            alert('Error creating member: ' + err.message);
+        } finally {
+            btn.innerText = oldText;
+            btn.disabled = false;
+        }
     });
 
 
